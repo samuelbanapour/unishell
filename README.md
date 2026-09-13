@@ -94,6 +94,33 @@ This produces a self-contained executable for the platform you build on
 (PyInstaller does not cross-compile — build on macOS for a macOS binary,
 on Windows for a `.exe`, on Linux for a Linux binary).
 
+## Releasing
+
+Changes are tracked in [CHANGELOG.md](CHANGELOG.md) as you go: add a bullet
+under `## [Unreleased]` in the same commit/PR as the change it describes.
+
+When it's time to cut a release:
+
+```bash
+scripts/release.py 0.2.0
+```
+
+This bumps the version in `pyproject.toml` and `src/unishell/__init__.py`,
+renames `[Unreleased]` in the changelog to `[0.2.0] - <today>` (adding a
+fresh empty `[Unreleased]` above it), and creates a commit + annotated tag
+(`v0.2.0`). It refuses to run if the changelog's `[Unreleased]` section is
+empty, or if the working tree isn't clean.
+
+It does not push. Review the commit/tag, then:
+
+```bash
+git push && git push --tags
+```
+
+Pushing the tag triggers the Azure Pipelines build, which builds all three
+platform binaries and publishes them to a new GitHub Release automatically
+(see [azure-pipelines.yml](azure-pipelines.yml)).
+
 ## Limitations
 
 - `ps`/`kill` need the `psutil` dependency; the standalone binary already
