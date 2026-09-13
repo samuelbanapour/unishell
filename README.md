@@ -6,6 +6,28 @@ the same built-in implementation. Commands are implemented directly (file
 ops via Python's `os`/`shutil`, process info via `psutil`), not by shelling
 out to the host OS's own `ls`/`dir`/`ps`/etc.
 
+## Download
+
+Prebuilt standalone binaries (no Python required) are attached to each
+[GitHub Release](https://github.com/samuelbanapour/unishell/releases/latest):
+
+| Platform | Download |
+|----------|----------|
+| Linux (x86_64) | [unishell-linux-x86_64](https://github.com/samuelbanapour/unishell/releases/latest/download/unishell-linux-x86_64) |
+| macOS (x86_64 — also runs on Apple Silicon via Rosetta 2) | [unishell-macos-x86_64](https://github.com/samuelbanapour/unishell/releases/latest/download/unishell-macos-x86_64) |
+| Windows (x86_64) | [unishell-windows-x86_64.exe](https://github.com/samuelbanapour/unishell/releases/latest/download/unishell-windows-x86_64.exe) |
+
+After downloading on Linux/macOS, mark it executable before running:
+
+```bash
+chmod +x unishell-linux-x86_64   # or unishell-macos-x86_64
+./unishell-linux-x86_64
+```
+
+Every push of a `vX.Y.Z` tag builds fresh binaries for all three platforms
+and publishes them as a new release automatically (see
+[azure-pipelines.yml](azure-pipelines.yml)).
+
 ## Run it
 
 **Standalone binary (no Python required):**
