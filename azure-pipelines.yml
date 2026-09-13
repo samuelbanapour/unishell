@@ -1,6 +1,11 @@
-# Builds standalone UniShell binaries for Linux, Windows, and macOS
-# (a true universal2 binary: arm64 + x86_64 combined via lipo), then on a
-# version-tag push, attaches them all to a GitHub Release.
+# Builds standalone UniShell binaries for Linux, Windows, and macOS, then on
+# a version-tag push, attaches them all to a GitHub Release.
+#
+# The macOS binary is x86_64: Azure Pipelines' Microsoft-hosted macOS pool
+# is Intel-only (no Apple Silicon hosted agents), so a true universal2 fat
+# binary isn't buildable there. The x86_64 binary still runs on Apple
+# Silicon Macs transparently via Rosetta 2, which ships by default on all
+# of them.
 trigger:
   tags:
     include:
@@ -52,40 +57,22 @@ stages:
               targetPath: 'dist\$(binaryName).exe'
               artifact: 'unishell-windows-x86_64'
 
-      - job: macos_universal
+      - job: macos
         pool:
           vmImage: 'macOS-latest'
         steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '3.11'
           - script: |
-              set -e
-              # Azure's Microsoft-hosted macOS pool only has an arm64 image
-              # ("macOS-13"/Intel was retired), and UsePythonVersion@0's
-              # cached interpreter doesn't match every -arch invocation
-              # cleanly. So we install python.org's own universal2 build
-              # (a real fat binary since 3.9.1) and drive it under `arch`
-              # to get a genuine, natively-compiled binary for each slice,
-              # then lipo them together.
-              curl -fsSL -o python.pkg https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg
-              sudo installer -pkg python.pkg -target /
-              PY=/Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11
-              softwareupdate --install-rosetta --agree-to-license || true
-              for ARCH in arm64 x86_64; do
-                arch -$ARCH $PY -m venv "venv-$ARCH"
-                arch -$ARCH "venv-$ARCH/bin/pip" install --upgrade pip -q
-                arch -$ARCH "venv-$ARCH/bin/pip" install -e . pyinstaller -q
-                arch -$ARCH "venv-$ARCH/bin/pyinstaller" --onefile --name $(binaryName) \
-                  --distpath "dist-$ARCH" --workpath "build-$ARCH" --specpath "spec-$ARCH" \
-                  --target-arch $ARCH src/unishell/shell.py
-              done
-              mkdir -p dist
-              lipo -create "dist-arm64/$(binaryName)" "dist-x86_64/$(binaryName)" -output "dist/$(binaryName)"
-              chmod +x "dist/$(binaryName)"
-              lipo -info "dist/$(binaryName)"
-            displayName: 'Build macOS universal2 binary (arm64 + x86_64 via lipo)'
+              python -m pip install --upgrade pip
+              pip install -e . pyinstaller
+              pyinstaller --onefile --name $(binaryName) src/unishell/shell.py
+            displayName: 'Build macOS binary (x86_64, runs on Apple Silicon via Rosetta 2)'
           - task: PublishPipelineArtifact@1
             inputs:
               targetPath: 'dist/$(binaryName)'
-              artifact: 'unishell-macos-universal2'
+              artifact: 'unishell-macos-x86_64'
 
   - stage: Release
     dependsOn: Build
@@ -100,12 +87,12 @@ stages:
           - download: current
             artifact: 'unishell-windows-x86_64'
           - download: current
-            artifact: 'unishell-macos-universal2'
+            artifact: 'unishell-macos-x86_64'
           - script: |
               mkdir -p release
               cp "$(Pipeline.Workspace)/unishell-linux-x86_64/$(binaryName)" "release/unishell-linux-x86_64"
               cp "$(Pipeline.Workspace)/unishell-windows-x86_64/$(binaryName).exe" "release/unishell-windows-x86_64.exe"
-              cp "$(Pipeline.Workspace)/unishell-macos-universal2/$(binaryName)" "release/unishell-macos-universal2"
+              cp "$(Pipeline.Workspace)/unishell-macos-x86_64/$(binaryName)" "release/unishell-macos-x86_64"
               chmod +x release/*
             displayName: 'Stage release assets'
           - task: GitHubRelease@1
@@ -117,7 +104,7 @@ stages:
               tag: '$(Build.SourceBranchName)'
               title: 'UniShell $(Build.SourceBranchName)'
               releaseNotesSource: 'inline'
-              releaseNotesInline: 'Automated release built by Azure Pipelines for Linux, Windows, and macOS (universal2).'
+              releaseNotesInline: 'Automated release built by Azure Pipelines for Linux, Windows, and macOS (x86_64; runs on Apple Silicon via Rosetta 2).'
               assets: 'release/*'
               isDraft: false
               isPreRelease: false
