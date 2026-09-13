@@ -59,7 +59,7 @@ def check_clean_tree():
 
 def check_changelog_has_unreleased_entries():
     text = CHANGELOG.read_text()
-    m = re.search(r"^## \[Unreleased\]\s*\n(.*?)(?=\n## \[|\Z)", text, re.MULTILINE | re.DOTALL)
+    m = re.search(r"^## \[Unreleased\]\n(.*?)(?=\n## \[|\Z)", text, re.MULTILINE | re.DOTALL)
     if not m or not m.group(1).strip():
         sys.exit(
             "release: CHANGELOG.md has no entries under [Unreleased].\n"
