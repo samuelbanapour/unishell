@@ -1,6 +1,6 @@
 # Builds standalone UniShell binaries for Linux, Windows, and macOS
-# (universal2: arm64 + x86_64 combined via lipo), then on a version-tag
-# push, attaches them all to a GitHub Release.
+# (a true universal2 binary: arm64 + x86_64 combined via lipo), then on a
+# version-tag push, attaches them all to a GitHub Release.
 trigger:
   tags:
     include:
@@ -52,67 +52,43 @@ stages:
               targetPath: 'dist\$(binaryName).exe'
               artifact: 'unishell-windows-x86_64'
 
-      - job: macos_arm64
+      - job: macos_universal
         pool:
           vmImage: 'macOS-latest'
         steps:
-          - task: UsePythonVersion@0
-            inputs:
-              versionSpec: '3.11'
           - script: |
-              python -m pip install --upgrade pip
-              pip install -e . pyinstaller
-              pyinstaller --onefile --name $(binaryName)-arm64 --target-arch arm64 src/unishell/shell.py
-            displayName: 'Build macOS arm64 binary'
-          - task: PublishPipelineArtifact@1
-            inputs:
-              targetPath: 'dist/$(binaryName)-arm64'
-              artifact: 'unishell-macos-arm64'
-
-      - job: macos_x86_64
-        pool:
-          vmImage: 'macOS-13'
-        steps:
-          - task: UsePythonVersion@0
-            inputs:
-              versionSpec: '3.11'
-          - script: |
-              python -m pip install --upgrade pip
-              pip install -e . pyinstaller
-              pyinstaller --onefile --name $(binaryName)-x86_64 --target-arch x86_64 src/unishell/shell.py
-            displayName: 'Build macOS x86_64 binary'
-          - task: PublishPipelineArtifact@1
-            inputs:
-              targetPath: 'dist/$(binaryName)-x86_64'
-              artifact: 'unishell-macos-x86_64'
-
-  - stage: MacUniversal
-    dependsOn: Build
-    jobs:
-      - job: lipo_combine
-        pool:
-          vmImage: 'macOS-latest'
-        steps:
-          - download: current
-            artifact: 'unishell-macos-arm64'
-          - download: current
-            artifact: 'unishell-macos-x86_64'
-          - script: |
+              set -e
+              # Azure's Microsoft-hosted macOS pool only has an arm64 image
+              # ("macOS-13"/Intel was retired), and UsePythonVersion@0's
+              # cached interpreter doesn't match every -arch invocation
+              # cleanly. So we install python.org's own universal2 build
+              # (a real fat binary since 3.9.1) and drive it under `arch`
+              # to get a genuine, natively-compiled binary for each slice,
+              # then lipo them together.
+              curl -fsSL -o python.pkg https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg
+              sudo installer -pkg python.pkg -target /
+              PY=/Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11
+              softwareupdate --install-rosetta --agree-to-license || true
+              for ARCH in arm64 x86_64; do
+                arch -$ARCH $PY -m venv "venv-$ARCH"
+                arch -$ARCH "venv-$ARCH/bin/pip" install --upgrade pip -q
+                arch -$ARCH "venv-$ARCH/bin/pip" install -e . pyinstaller -q
+                arch -$ARCH "venv-$ARCH/bin/pyinstaller" --onefile --name $(binaryName) \
+                  --distpath "dist-$ARCH" --workpath "build-$ARCH" --specpath "spec-$ARCH" \
+                  --target-arch $ARCH src/unishell/shell.py
+              done
               mkdir -p dist
-              lipo -create \
-                "$(Pipeline.Workspace)/unishell-macos-arm64/$(binaryName)-arm64" \
-                "$(Pipeline.Workspace)/unishell-macos-x86_64/$(binaryName)-x86_64" \
-                -output "dist/$(binaryName)"
+              lipo -create "dist-arm64/$(binaryName)" "dist-x86_64/$(binaryName)" -output "dist/$(binaryName)"
               chmod +x "dist/$(binaryName)"
               lipo -info "dist/$(binaryName)"
-            displayName: 'Combine into universal2 binary'
+            displayName: 'Build macOS universal2 binary (arm64 + x86_64 via lipo)'
           - task: PublishPipelineArtifact@1
             inputs:
               targetPath: 'dist/$(binaryName)'
               artifact: 'unishell-macos-universal2'
 
   - stage: Release
-    dependsOn: MacUniversal
+    dependsOn: Build
     condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
     jobs:
       - job: github_release
