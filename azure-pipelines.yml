@@ -1,0 +1,147 @@
+# Builds standalone UniShell binaries for Linux, Windows, and macOS
+# (universal2: arm64 + x86_64 combined via lipo), then on a version-tag
+# push, attaches them all to a GitHub Release.
+trigger:
+  tags:
+    include:
+      - v*
+  branches:
+    include:
+      - main
+      - master
+
+pr: none
+
+variables:
+  binaryName: 'unishell'
+
+stages:
+  - stage: Build
+    jobs:
+      - job: linux
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '3.11'
+          - script: |
+              python -m pip install --upgrade pip
+              pip install -e . pyinstaller
+              pyinstaller --onefile --name $(binaryName) src/unishell/shell.py
+            displayName: 'Build Linux binary'
+          - task: PublishPipelineArtifact@1
+            inputs:
+              targetPath: 'dist/$(binaryName)'
+              artifact: 'unishell-linux-x86_64'
+
+      - job: windows
+        pool:
+          vmImage: 'windows-latest'
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '3.11'
+          - script: |
+              python -m pip install --upgrade pip
+              pip install -e . pyinstaller
+              pyinstaller --onefile --name $(binaryName) src/unishell/shell.py
+            displayName: 'Build Windows binary'
+          - task: PublishPipelineArtifact@1
+            inputs:
+              targetPath: 'dist\$(binaryName).exe'
+              artifact: 'unishell-windows-x86_64'
+
+      - job: macos_arm64
+        pool:
+          vmImage: 'macOS-latest'
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '3.11'
+          - script: |
+              python -m pip install --upgrade pip
+              pip install -e . pyinstaller
+              pyinstaller --onefile --name $(binaryName)-arm64 --target-arch arm64 src/unishell/shell.py
+            displayName: 'Build macOS arm64 binary'
+          - task: PublishPipelineArtifact@1
+            inputs:
+              targetPath: 'dist/$(binaryName)-arm64'
+              artifact: 'unishell-macos-arm64'
+
+      - job: macos_x86_64
+        pool:
+          vmImage: 'macOS-13'
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '3.11'
+          - script: |
+              python -m pip install --upgrade pip
+              pip install -e . pyinstaller
+              pyinstaller --onefile --name $(binaryName)-x86_64 --target-arch x86_64 src/unishell/shell.py
+            displayName: 'Build macOS x86_64 binary'
+          - task: PublishPipelineArtifact@1
+            inputs:
+              targetPath: 'dist/$(binaryName)-x86_64'
+              artifact: 'unishell-macos-x86_64'
+
+  - stage: MacUniversal
+    dependsOn: Build
+    jobs:
+      - job: lipo_combine
+        pool:
+          vmImage: 'macOS-latest'
+        steps:
+          - download: current
+            artifact: 'unishell-macos-arm64'
+          - download: current
+            artifact: 'unishell-macos-x86_64'
+          - script: |
+              mkdir -p dist
+              lipo -create \
+                "$(Pipeline.Workspace)/unishell-macos-arm64/$(binaryName)-arm64" \
+                "$(Pipeline.Workspace)/unishell-macos-x86_64/$(binaryName)-x86_64" \
+                -output "dist/$(binaryName)"
+              chmod +x "dist/$(binaryName)"
+              lipo -info "dist/$(binaryName)"
+            displayName: 'Combine into universal2 binary'
+          - task: PublishPipelineArtifact@1
+            inputs:
+              targetPath: 'dist/$(binaryName)'
+              artifact: 'unishell-macos-universal2'
+
+  - stage: Release
+    dependsOn: MacUniversal
+    condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
+    jobs:
+      - job: github_release
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - download: current
+            artifact: 'unishell-linux-x86_64'
+          - download: current
+            artifact: 'unishell-windows-x86_64'
+          - download: current
+            artifact: 'unishell-macos-universal2'
+          - script: |
+              mkdir -p release
+              cp "$(Pipeline.Workspace)/unishell-linux-x86_64/$(binaryName)" "release/unishell-linux-x86_64"
+              cp "$(Pipeline.Workspace)/unishell-windows-x86_64/$(binaryName).exe" "release/unishell-windows-x86_64.exe"
+              cp "$(Pipeline.Workspace)/unishell-macos-universal2/$(binaryName)" "release/unishell-macos-universal2"
+              chmod +x release/*
+            displayName: 'Stage release assets'
+          - task: GitHubRelease@1
+            inputs:
+              gitHubConnection: 'unishell-github'
+              repositoryName: '$(Build.Repository.Name)'
+              action: 'create'
+              target: '$(Build.SourceVersion)'
+              tag: '$(Build.SourceBranchName)'
+              title: 'UniShell $(Build.SourceBranchName)'
+              releaseNotesSource: 'inline'
+              releaseNotesInline: 'Automated release built by Azure Pipelines for Linux, Windows, and macOS (universal2).'
+              assets: 'release/*'
+              isDraft: false
+              isPreRelease: false

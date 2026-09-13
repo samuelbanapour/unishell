@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unishell"
+version = "0.1.0"
+description = "One interpreter for PowerShell, cmd.exe, and POSIX/Linux commands."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Samuel Banapour" }]
+dependencies = [
+    "psutil>=5.9",
+]
+
+[project.scripts]
+unishell = "unishell.shell:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
